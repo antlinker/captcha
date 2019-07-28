@@ -22,18 +22,39 @@ func TestVerify(t *testing.T) {
 		t.Errorf("verified wrong captcha")
 	}
 	id = New()
-	d := globalStore.Get(id, false) // cheating
+	d, max := globalStore.Get(id, false) // cheating
 	if !Verify(id, d) {
 		t.Errorf("proper captcha not verified")
+	}
+	if max != DefaultMaxCheckCnt {
+		t.Errorf("最大验证次数不等于 %d", DefaultMaxCheckCnt)
 	}
 }
 
 func TestReload(t *testing.T) {
 	id := New()
-	d1 := globalStore.Get(id, false) // cheating
+	d1, _ := globalStore.Get(id, false) // cheating
 	Reload(id)
-	d2 := globalStore.Get(id, false) // cheating again
+	d2, _ := globalStore.Get(id, false) // cheating again
 	if bytes.Equal(d1, d2) {
+		t.Errorf("reload didn't work: %v = %v", d1, d2)
+	}
+}
+
+func TestTryToReload(t *testing.T) {
+	id := NewLenCheckCnt(4, 1)
+	d1, _ := globalStore.Get(id, false) // cheating
+	TryToReload(id)
+	d2, _ := globalStore.Get(id, false) // cheating again
+	if !bytes.Equal(d1, d2) {
+		t.Errorf("reload didn't work: %v = %v", d1, d2)
+	}
+	ok := Verify(id, d1)
+	if !ok {
+		t.Error("Verify want: true act: false")
+	}
+	d2, _ = globalStore.Get(id, false)
+	if !bytes.Equal(d1, d2) {
 		t.Errorf("reload didn't work: %v = %v", d1, d2)
 	}
 }
@@ -48,5 +69,12 @@ func TestRandomDigits(t *testing.T) {
 	d2 := RandomDigits(10)
 	if bytes.Equal(d1, d2) {
 		t.Errorf("digits seem to be not random")
+	}
+}
+
+func Test_string2bytes(t *testing.T) {
+	dig := string2bytes("12345")
+	if bytes2string(dig) != "12345" {
+		t.Errorf("转换失败")
 	}
 }

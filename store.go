@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// An object implementing Store interface can be registered with SetCustomStore
+// Store An object implementing Store interface can be registered with SetCustomStore
 // function to handle storage and retrieval of captcha ids and solutions for
 // them, replacing the default memory store.
 //
@@ -19,11 +19,12 @@ import (
 // method after the certain amount of captchas has been stored.)
 type Store interface {
 	// Set sets the digits for the captcha id.
-	Set(id string, digits []byte)
+	Set(id string, digits []byte, maxcheckCnt int)
 
 	// Get returns stored digits for the captcha id. Clear indicates
 	// whether the captcha must be deleted from the store.
-	Get(id string, clear bool) (digits []byte)
+	Get(id string, clear bool) (digits []byte, maxCheckCnt int)
+	GetForID(id string) (digits []byte, maxCheckCnt int, checkCnt int)
 }
 
 // expValue stores timestamp and id of captchas. It is used in the list inside
@@ -33,11 +34,16 @@ type idByTimeValue struct {
 	timestamp time.Time
 	id        string
 }
+type idValue struct {
+	value       []byte
+	checkCnt    int
+	maxCheckCnt int
+}
 
 // memoryStore is an internal store for captcha ids and their values.
 type memoryStore struct {
 	sync.RWMutex
-	digitsById map[string][]byte
+	digitsByID map[string]*idValue
 	idByTime   *list.List
 	// Number of items stored since last collection.
 	numStored int
@@ -52,16 +58,16 @@ type memoryStore struct {
 // store must be registered with SetCustomStore to replace the default one.
 func NewMemoryStore(collectNum int, expiration time.Duration) Store {
 	s := new(memoryStore)
-	s.digitsById = make(map[string][]byte)
+	s.digitsByID = make(map[string]*idValue)
 	s.idByTime = list.New()
 	s.collectNum = collectNum
 	s.expiration = expiration
 	return s
 }
 
-func (s *memoryStore) Set(id string, digits []byte) {
+func (s *memoryStore) Set(id string, digits []byte, maxcheckCnt int) {
 	s.Lock()
-	s.digitsById[id] = digits
+	s.digitsByID[id] = &idValue{value: digits, maxCheckCnt: maxcheckCnt}
 	s.idByTime.PushBack(idByTimeValue{time.Now(), id})
 	s.numStored++
 	if s.numStored <= s.collectNum {
@@ -71,8 +77,16 @@ func (s *memoryStore) Set(id string, digits []byte) {
 	s.Unlock()
 	go s.collect()
 }
-
-func (s *memoryStore) Get(id string, clear bool) (digits []byte) {
+func (s *memoryStore) GetForID(id string) (digits []byte, maxCheckCnt int, checkCnt int) {
+	s.RLock()
+	defer s.RUnlock()
+	val, ok := s.digitsByID[id]
+	if !ok {
+		return
+	}
+	return val.value, val.maxCheckCnt, val.checkCnt
+}
+func (s *memoryStore) Get(id string, clear bool) (digits []byte, maxCheckCnt int) {
 	if !clear {
 		// When we don't need to clear captcha, acquire read lock.
 		s.RLock()
@@ -81,12 +95,23 @@ func (s *memoryStore) Get(id string, clear bool) (digits []byte) {
 		s.Lock()
 		defer s.Unlock()
 	}
-	digits, ok := s.digitsById[id]
+	val, ok := s.digitsByID[id]
 	if !ok {
 		return
 	}
-	if clear {
-		delete(s.digitsById, id)
+	maxCheckCnt = val.maxCheckCnt
+	if !clear && val.checkCnt < val.maxCheckCnt {
+		digits = val.value
+		return
+	}
+	val.checkCnt++
+	if val.checkCnt > val.maxCheckCnt {
+		// 已经验证到指定次数
+		return
+	}
+	digits = val.value
+	if val.checkCnt >= val.maxCheckCnt {
+		delete(s.digitsByID, id)
 		// XXX(dchest) Index (s.idByTime) will be cleaned when
 		// collecting expired captchas.  Can't clean it here, because
 		// we don't store reference to expValue in the map.
@@ -106,7 +131,7 @@ func (s *memoryStore) collect() {
 			return
 		}
 		if ev.timestamp.Add(s.expiration).Before(now) {
-			delete(s.digitsById, ev.id)
+			delete(s.digitsByID, ev.id)
 			next := e.Next()
 			s.idByTime.Remove(e)
 			e = next

@@ -13,10 +13,11 @@ func TestSetGet(t *testing.T) {
 	s := NewMemoryStore(CollectNum, Expiration)
 	id := "captcha id"
 	d := RandomDigits(10)
-	s.Set(id, d)
-	d2 := s.Get(id, false)
-	if d2 == nil || !bytes.Equal(d, d2) {
-		t.Errorf("saved %v, getDigits returned got %v", d, d2)
+	max := 2
+	s.Set(id, d, max)
+	d2, qmax := s.Get(id, false)
+	if d2 == nil || !bytes.Equal(d, d2) || max != qmax {
+		t.Errorf("saved %v(%d), getDigits returned got %v(%d)", d, max, d2, qmax)
 	}
 }
 
@@ -24,17 +25,39 @@ func TestGetClear(t *testing.T) {
 	s := NewMemoryStore(CollectNum, Expiration)
 	id := "captcha id"
 	d := RandomDigits(10)
-	s.Set(id, d)
-	d2 := s.Get(id, true)
+	max := 1
+	s.Set(id, d, max)
+	d2, _ := s.Get(id, true)
 	if d2 == nil || !bytes.Equal(d, d2) {
 		t.Errorf("saved %v, getDigitsClear returned got %v", d, d2)
 	}
-	d2 = s.Get(id, false)
+	d2, _ = s.Get(id, false)
 	if d2 != nil {
 		t.Errorf("getDigitClear didn't clear (%q=%v)", id, d2)
 	}
 }
+func TestGetClearForNum(t *testing.T) {
+	s := NewMemoryStore(CollectNum, Expiration)
+	id := "captcha id"
+	d := RandomDigits(10)
+	max := 5
+	s.Set(id, d, max)
+	for i := 0; i < max; i++ {
 
+		d2, _ := s.Get(id, true)
+		if d2 == nil || !bytes.Equal(d, d2) {
+			t.Errorf("saved %v, getDigitsClear returned got %v", d, d2)
+		}
+	}
+	d2, _ := s.Get(id, true)
+	if d2 != nil {
+		t.Errorf("getDigitClear didn't clear (%q=%v)", id, d2)
+	}
+	d2, _ = s.Get(id, false)
+	if d2 != nil {
+		t.Errorf("getDigitClear didn't clear (%q=%v)", id, d2)
+	}
+}
 func TestCollect(t *testing.T) {
 	//TODO(dchest): can't test automatic collection when saving, because
 	//it's currently launched in a different goroutine.
@@ -44,13 +67,13 @@ func TestCollect(t *testing.T) {
 	d := RandomDigits(10)
 	for i := range ids {
 		ids[i] = randomId()
-		s.Set(ids[i], d)
+		s.Set(ids[i], d, 1)
 	}
 	s.(*memoryStore).collect()
 	// Must be already collected
 	nc := 0
 	for i := range ids {
-		d2 := s.Get(ids[i], false)
+		d2, _ := s.Get(ids[i], false)
 		if d2 != nil {
 			t.Errorf("%d: not collected", i)
 			nc++
@@ -72,7 +95,7 @@ func BenchmarkSetCollect(b *testing.B) {
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		for j := 0; j < 1000; j++ {
-			s.Set(ids[j], d)
+			s.Set(ids[j], d, 1)
 		}
 		s.(*memoryStore).collect()
 	}
