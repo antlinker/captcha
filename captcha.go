@@ -187,7 +187,11 @@ func Verify(id string, digits []byte) bool {
 	if reald == nil {
 		return false
 	}
-	return bytes.Equal(digits, reald)
+	ok := bytes.Equal(digits, reald)
+	if ok {
+		globalStore.Clear(id)
+	}
+	return ok
 }
 
 // VerifyString is like Verify, but accepts a string of digits.  It removes

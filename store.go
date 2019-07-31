@@ -25,6 +25,7 @@ type Store interface {
 	// whether the captcha must be deleted from the store.
 	Get(id string, clear bool) (digits []byte, maxCheckCnt int)
 	GetForID(id string) (digits []byte, maxCheckCnt int, checkCnt int)
+	Clear(id string)
 }
 
 // expValue stores timestamp and id of captchas. It is used in the list inside
@@ -85,6 +86,16 @@ func (s *memoryStore) GetForID(id string) (digits []byte, maxCheckCnt int, check
 		return
 	}
 	return val.value, val.maxCheckCnt, val.checkCnt
+}
+
+func (s *memoryStore) Clear(id string) {
+	s.Lock()
+	defer s.Unlock()
+	_, ok := s.digitsByID[id]
+	if !ok {
+		return
+	}
+	delete(s.digitsByID, id)
 }
 func (s *memoryStore) Get(id string, clear bool) (digits []byte, maxCheckCnt int) {
 	if !clear {
