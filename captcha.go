@@ -105,7 +105,17 @@ func NewCheckCnt(cnt int) string {
 // NewLenCheckCnt 创建一个新的验证码，指定验证码长度，和最大校验次数，返回id
 func NewLenCheckCnt(len int, cnt int) (id string) {
 	id = randomId()
-	globalStore.Set(id, RandomDigits(len), cnt)
+	globalStore.Set(id, RandomDigits(len), cnt, "")
+	return
+}
+
+// NewLenCheckCntBind 创建一个新的验证码，
+// 指定验证码长度，和最大校验次数，
+// 并绑定一个字符串
+// 返回id
+func NewLenCheckCntBind(len int, cnt int, data string) (id string) {
+	id = randomId()
+	globalStore.Set(id, RandomDigits(len), cnt, data)
 	return
 }
 
@@ -116,22 +126,22 @@ func NewLenCheckCnt(len int, cnt int) (id string) {
 // refreshed to show the new captcha representation (WriteImage and WriteAudio
 // will write the new one).
 func Reload(id string) bool {
-	old, maxcnt, _ := globalStore.GetForID(id)
+	old, maxcnt, _, binddata := globalStore.GetForID(id)
 	if old == nil {
 		return false
 	}
-	globalStore.Set(id, RandomDigits(len(old)), maxcnt)
+	globalStore.Set(id, RandomDigits(len(old)), maxcnt, binddata)
 	return true
 }
 
 // TryToReload 当验证次数超过最大验证次数时刷新
 func TryToReload(id string) bool {
-	old, maxcnt, checkcnt := globalStore.GetForID(id)
+	old, maxcnt, checkcnt, binddata := globalStore.GetForID(id)
 	if old == nil {
 		return false
 	}
 	if checkcnt >= maxcnt {
-		globalStore.Set(id, RandomDigits(len(old)), maxcnt)
+		globalStore.Set(id, RandomDigits(len(old)), maxcnt, binddata)
 		return true
 	}
 	return false
@@ -140,7 +150,7 @@ func TryToReload(id string) bool {
 // WriteImage writes PNG-encoded image representation of the captcha with the
 // given id. The image will have the given width and height.
 func WriteImage(w io.Writer, id string, width, height int) error {
-	d, _ := globalStore.Get(id, false)
+	d, _, _ := globalStore.Get(id, false)
 	if d == nil {
 		return ErrNotFound
 	}
@@ -152,7 +162,7 @@ func WriteImage(w io.Writer, id string, width, height int) error {
 // given id and the given language. If there are no sounds for the given
 // language, English is used.
 func WriteAudio(w io.Writer, id string, lang string) error {
-	d, _ := globalStore.Get(id, false)
+	d, _, _ := globalStore.Get(id, false)
 	if d == nil {
 		return ErrNotFound
 	}
@@ -162,9 +172,12 @@ func WriteAudio(w io.Writer, id string, lang string) error {
 
 // SendSMS 发送短信
 func SendSMS(tel, id string) error {
-	d, _ := globalStore.Get(id, false)
+	d, _, binddata := globalStore.Get(id, false)
 	if d == nil {
 		return ErrNotFound
+	}
+	if binddata != tel {
+		return errors.New("该验证码和手机号码不匹配")
 	}
 	code := bytes2string(d)
 	fmt.Printf("code:%v\n", code)
@@ -179,30 +192,37 @@ func SendSMS(tel, id string) error {
 //
 // The function deletes the captcha with the given id from the internal
 // storage, so that the same captcha can't be verified anymore.
-func Verify(id string, digits []byte) bool {
+func Verify(id string, digits []byte, binddata ...string) bool {
 	if digits == nil || len(digits) == 0 {
 		return false
 	}
-	reald, _ := globalStore.Get(id, false)
+	reald, _, oldbinddata := globalStore.Get(id, false)
 	if reald == nil {
 		return false
 	}
 	ok := bytes.Equal(digits, reald)
 	if ok {
-		globalStore.Clear(id)
+		if len(binddata) > 0 {
+			if oldbinddata == binddata[0] {
+
+				globalStore.Clear(id)
+				return true
+			}
+		}
+		return true
 	}
-	return ok
+	return false
 }
 
 // VerifyString is like Verify, but accepts a string of digits.  It removes
 // spaces and commas from the string, but any other characters, apart from
 // digits and listed above, will cause the function to return false.
-func VerifyString(id string, digits string) bool {
+func VerifyString(id string, digits string, binddata ...string) bool {
 	if digits == "" {
 		return false
 	}
 	ns := string2bytes(digits)
-	return Verify(id, ns)
+	return Verify(id, ns, binddata...)
 }
 
 func string2bytes(digits string) []byte {

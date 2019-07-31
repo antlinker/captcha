@@ -19,12 +19,12 @@ import (
 // method after the certain amount of captchas has been stored.)
 type Store interface {
 	// Set sets the digits for the captcha id.
-	Set(id string, digits []byte, maxcheckCnt int)
+	Set(id string, digits []byte, maxcheckCnt int, binddata string)
 
 	// Get returns stored digits for the captcha id. Clear indicates
 	// whether the captcha must be deleted from the store.
-	Get(id string, clear bool) (digits []byte, maxCheckCnt int)
-	GetForID(id string) (digits []byte, maxCheckCnt int, checkCnt int)
+	Get(id string, clear bool) (digits []byte, maxCheckCnt int, binddata string)
+	GetForID(id string) (digits []byte, maxCheckCnt int, checkCnt int, binddata string)
 	Clear(id string)
 }
 
@@ -39,6 +39,7 @@ type idValue struct {
 	value       []byte
 	checkCnt    int
 	maxCheckCnt int
+	binddata    string
 }
 
 // memoryStore is an internal store for captcha ids and their values.
@@ -66,9 +67,9 @@ func NewMemoryStore(collectNum int, expiration time.Duration) Store {
 	return s
 }
 
-func (s *memoryStore) Set(id string, digits []byte, maxcheckCnt int) {
+func (s *memoryStore) Set(id string, digits []byte, maxcheckCnt int, binddata string) {
 	s.Lock()
-	s.digitsByID[id] = &idValue{value: digits, maxCheckCnt: maxcheckCnt}
+	s.digitsByID[id] = &idValue{value: digits, maxCheckCnt: maxcheckCnt, binddata: binddata}
 	s.idByTime.PushBack(idByTimeValue{time.Now(), id})
 	s.numStored++
 	if s.numStored <= s.collectNum {
@@ -78,14 +79,14 @@ func (s *memoryStore) Set(id string, digits []byte, maxcheckCnt int) {
 	s.Unlock()
 	go s.collect()
 }
-func (s *memoryStore) GetForID(id string) (digits []byte, maxCheckCnt int, checkCnt int) {
+func (s *memoryStore) GetForID(id string) (digits []byte, maxCheckCnt int, checkCnt int, binddata string) {
 	s.RLock()
 	defer s.RUnlock()
 	val, ok := s.digitsByID[id]
 	if !ok {
 		return
 	}
-	return val.value, val.maxCheckCnt, val.checkCnt
+	return val.value, val.maxCheckCnt, val.checkCnt, val.binddata
 }
 
 func (s *memoryStore) Clear(id string) {
@@ -97,7 +98,7 @@ func (s *memoryStore) Clear(id string) {
 	}
 	delete(s.digitsByID, id)
 }
-func (s *memoryStore) Get(id string, clear bool) (digits []byte, maxCheckCnt int) {
+func (s *memoryStore) Get(id string, clear bool) (digits []byte, maxCheckCnt int, binddata string) {
 	if !clear {
 		// When we don't need to clear captcha, acquire read lock.
 		s.RLock()
@@ -111,6 +112,7 @@ func (s *memoryStore) Get(id string, clear bool) (digits []byte, maxCheckCnt int
 		return
 	}
 	maxCheckCnt = val.maxCheckCnt
+	binddata = val.binddata
 	if !clear && val.checkCnt < val.maxCheckCnt {
 		digits = val.value
 		return
