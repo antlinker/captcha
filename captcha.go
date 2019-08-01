@@ -208,6 +208,7 @@ func Verify(id string, digits []byte, binddata ...string) bool {
 				globalStore.Clear(id)
 				return true
 			}
+			return false
 		}
 		return true
 	}
